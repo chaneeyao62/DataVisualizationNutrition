@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+*{
+     margin:0px auto;
+}
+
+ .toolTip {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    position: absolute;
+    display: none;
+    width: auto;
+    height: auto;
+    background: none repeat scroll 0 0 white;
+    border: 0 none;
+    border-radius: 8px 8px 8px 8px;
+    box-shadow: -3px 3px 15px #888888;
+    color: black;
+    font: 15px sans-serif;
+    padding: 5px;
+    text-align: center;
+}
+
+.axis path,
+.axis line {
+    fill: none;
+    stroke: grey;
+    stroke-width: 1;
+    shape-rendering: crispEdges;
+}
+
+text {
+  font: 12px sans-serif;
+}
+div {
+  margin: auto;
+  width: 100%;
+}
+h1 {
+  font-size: 300%;
+  padding-top: 2em;
+}
+html, body{
+     text-align:center;
+}
+</style>
+<link rel="stylesheet" type="text/css" href="index.css">
+<body>
+<div> <h1>Nutrition Facts for McDonald's Menu</h1>
+  <h2> vs. % Nutrient Needed to Maintain a Balanced Diet for an Average Adult</h2>
+  <h3>click an arc to zoom in, click the center white circle to zoom out</h3>
+</div>
+<div id = "plot"></div>
+<div id = "radios">
+  <form>
+  <label><input type="radio" name="dataset" value="percentCaloriesWeightMaintain" checked> Calories</label>
+  <label><input type="radio" name="dataset" value="percentTotalFat"> Fat</label>
+  <label><input type="radio" name="dataset" value="percentCholesterol"> Cholesterol</label>
+  <label><input type="radio" name="dataset" value="percentSodium"> Sodium</label>
+  <label><input type="radio" name="dataset" value="percentDietaryFiber"> Dietary Fiber</label>
+  </form>
+</div>
+
+<script src="//d3js.org/d3.v3.min.js"></script>
+<script>
+
+var margin = {top: 450, right: 450, bottom: 450, left: 450},
+    radius = Math.min(margin.top, margin.right, margin.bottom, margin.left) - 10;
+
+var hue = d3.scale.category10();
+
+var luminance = d3.scale.sqrt()
+    .domain([0, 1e6])
+    .clamp(true)
+    .range([90, 20]);
+
+var svg = d3.select("#plot").append("svg")
+    .attr("width", margin.left + margin.right)
+    .attr("height", margin.top + margin.bottom)
+    .append("g");
+
+svg.append("g")
+  .attr("class", "slices");
+svg.append("g")
+  .attr("class", "labelName");
+svg.append("g")
+  .attr("class", "labelValue");
+svg.append("g")
+  .attr("class", "lines");
+
+
+var outerArc = d3.svg.arc()
+  .innerRadius(radius * 0.9)
+  .outerRadius(radius * 0.9);
+
+var pie = d3.layout.pie()
+  .sort(null)
+  .value(function(d) {
+    return d.value;
+  });
+
+var div = d3.select("body").append("div").attr("class", "toolTip");
+
+svg.attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+
+var partition = d3.layout.partition()
+    .sort(function(a, b) { return d3.ascending(a.name, b.name); })
+    .size([2 * Math.PI, radius]);
+
+var currentNode;
+
+
+//circle2 4.2+6.6
+var arc = d3.svg.arc()
+    .startAngle(function(d) { return d.x; })
+    .endAngle(function(d) { return d.x + d.dx ; })
+    .padAngle(.01)
+    .padRadius(radius / 7.5)
+    .innerRadius(function(d) { return radius / 7.5 * d.depth; })
+    .outerRadius(function(d) { 
+      if (d.depth <= 1){
+        // d.depth <= 1.01 && d.depth >=0
+        // d.depth == 1 || d.depth == 1.01
+        if (d.children){
+          return radius / 7.5 * (d.depth + 1) - 1; 
+        }
+        else{return radius / 7.5 * d.depth + d.value*1.3;}
+      }
+      else{
+        return radius / 7.5 * d.depth + d.value*1.3; 
+      }
+
+    });
+
+function computeTextRotation(d) {
+  var angle=(d.x +d.dx/2)*180/Math.PI - 90  
+  
+  return angle;
+}
+function filter_min_arc_size_text(d, i) {return d.depth == 1}; 
+
+d3.json("menu.json", function(error, root) {
+  if (error) throw error;
+
+  // Compute the initial layout on the entire tree to sum sizes.
+  // Also compute the full name and fill color for each node,
+  // and stash the children so they can be restored as we descend.
+
+  partition
+      .value(function(d) { return d.percentCaloriesWeightMaintain; })
+      .nodes(root)
+      .forEach(function(d) {
+        d._children = d.children;
+        d.sum = d.value;
+        d.key = key(d);
+        d.fill = fill(d);
+      });
+
+  // Now redefine the value function to use the previously-computed sum.
+  partition
+      .children(function(d, depth) { return depth < 2 ? d._children : null; })
+      .value(function(d) { return d.sum; });
+
+  var level_100 = svg.select(".slices").append("circle")
+    .attr("r", radius / 2 + 15)
+    .attr("id", "level")  
+    .style("cursor", "default")
+    .style("fill", "rgba(243, 230, 76, 0.18)");
+
+
+  var center = svg.select(".slices").append("circle")
+      .attr("r", radius / 8)
+      .on("click", zoomOut)
+      .style("fill", "#ffffff");
+
+
+  center.append("title")
+      .text("zoom out");
+
+  var legend = svg.select(".slices").append("circle")
+    .attr("r", 30)
+    .attr("cx", -400)
+    .attr("cy", 370)
+    .style("cursor", "default")
+    .style("fill", "rgba(243, 230, 76, 0.18)");
+
+  var legend2 = svg.select(".slices").append("circle")
+    .attr("r", 15)
+    .attr("cx", -400)
+    .attr("cy", 370)
+    .style("cursor", "default")
+    .style("fill", "white");
+
+  var legend = svg.select(".labelName").append("text")
+    .attr("x", -460)
+    .attr("y", 415)
+    .text("% Daily Nutrition Intake")
+
+  var legend2 = svg.select(".labelName").append("text")
+    .attr("x", -406)
+    .attr("y", 374)
+    .text("0%")
+
+  var legend3 = svg.select(".labelName").append("text")
+    .attr("x", -370)
+    .attr("y", 355)
+    .text("100%")
+
+
+
+
+  currentNode = root;
+
+  var slice = svg.select(".slices").selectAll("path.slice")
+        .data(partition.nodes(root).slice(1));
+
+      slice.enter()
+      .insert("path")
+      .attr("d", arc)
+      .style("fill", function(d) { return d.fill; })
+      .each(function(d) { this._current = updateArc2(d); })
+      .on("click", zoomIn)
+
+      slice
+        .on("mousemove", function(d){
+            div.style("left", d3.event.pageX+10+"px");
+            div.style("top", d3.event.pageY-25+"px");
+            div.style("display", "inline-block");
+            if (d.name){
+              div.html((d.name));
+            }
+            if(d.Item){
+              div.html((d.Item));
+            }
+        });
+      slice
+        .on("mouseout", function(d){
+            div.style("display", "none");
+        });
+
+  /* ------- TEXT LABELS -------*/
+    var texts = svg.select(".labelName").selectAll("text")
+      .data(partition.nodes(root).slice(1))
+      .enter().append("text")
+      .filter(filter_min_arc_size_text)     
+      .attr("transform", function(d) { return "rotate(" + computeTextRotation(d) + ")"; })
+      .attr("x", function(d) { return radius / 1.7 * d.depth; })  
+      .attr("dx", "6") // margin
+      .attr("dy", ".35em") // vertical-align  
+      .style("fill", function(d) { return d.fill; })
+      .style("font-size", "20px")
+      .text(function(d,i) {return d.name})
+
+
+
+  d3.selectAll("input")
+      .on("change", change);
+
+ // var timeout = setTimeout(function() {
+ //    d3.select("input[value=\"Calories\"]").property("checked", true).each(change);
+ //  }, 2000);
+
+ function change() {
+    var value = this.value;
+    //clearTimeout(timeout);
+    partition.value(function(d) { return d[value]; } ); // change the value function; here all values with depth 2
+    slice = slice.data(partition.nodes(currentNode).slice(1)); // update new data path
+    slice.transition().duration(750).attrTween("d", function(d) { 
+    return arcTween.call(this, updateArc(d)); }) // redraw the arcs
+
+    texts = texts.data(partition.nodes(currentNode).slice(1), function(d) { return d.key; })
+    texts.exit()
+           .remove()    
+    texts.enter()
+            .append("text")
+        
+    texts.style("opacity", 0)
+      .attr("transform", function(d) { return "rotate(" + computeTextRotation(d) + ")"; })
+      .attr("x", function(d) { return radius / 1.7 * d.depth; })  
+      .attr("dx", "6") // margin
+      .attr("dy", ".35em") // vertical-align
+      .filter(filter_min_arc_size_text)     
+      .text(function(d,i) {return d.name})
+      .style("fill", function(d) { return d.fill; })
+      .style("font-size", "20px")
+
+      .transition().delay(750).style("opacity", 1)
+
+  }
+
+
+  function zoomIn(p) {
+    if (p.depth > 1) p = p.parent;
+    currentNode = p;
+    console.log(currentNode.name);
+    //second level when clicked on a specific item
+    if (p.depth ==1 && (!p.children)){
+      currentNode = p.parent;
+          console.log(currentNode.name);
+    }
+    if (!p.children) return;
+
+    level_100
+      .transition()
+      .duration(2000)
+      .attr('r', radius / 3 + 32);
+
+    zoom(p, p);
+  }
+
+  function zoomOut(p) {
+    if (!p) return;
+    if (!p.parent) return;
+      else{currentNode = p.parent;};
+
+    level_100
+      .transition()
+      .duration(2000)
+      .attr('r', radius / 2 + 15);
+
+    zoom(p.parent, p);
+  }
+
+  // Zoom to the specified new root.
+  function zoom(root, p) {
+    if (document.documentElement.__transition__) return;
+
+    // Rescale outside angles to match the new layout.
+    var enterArc,
+        exitArc,
+        outsideAngle = d3.scale.linear().domain([0, 2 * Math.PI]);
+
+    function insideArc(d) {
+      return p.key > d.key
+          ? {depth: d.depth - 1, x: 0, dx: 0} : p.key < d.key
+          ? {depth: d.depth - 1, x: 2 * Math.PI, dx: 0}
+          : {depth: 0, x: 0, dx: 2 * Math.PI};
+    }
+
+    function outsideArc(d) {
+      return {value:d.value, depth: d.depth + 1, x: outsideAngle(d.x), dx: outsideAngle(d.x + d.dx) - outsideAngle(d.x)};
+    }
+
+    center.datum(root);
+
+    // When zooming in, arcs enter from the outside and exit to the inside.
+    // Entering outside arcs start from the old layout.
+    if (root === p) enterArc = outsideArc, exitArc = insideArc, outsideAngle.range([p.x, p.x + p.dx]);
+    slice = slice.data(partition.nodes(root).slice(1), function(d) {return d.key; });
+    // When zooming out, arcs enter from the inside and exit to the outside.
+    // Exiting outside arcs transition to the new layout.
+    if (root !== p) enterArc = insideArc, exitArc = outsideArc, outsideAngle.range([p.x, p.x + p.dx]);
+
+
+    d3.transition().duration(d3.event.altKey ? 7500 : 750).each(function() {
+      slice.exit().transition()
+          .style("fill-opacity", function(d) { return d.depth === 1 + (root === p) ? 1 : 0; })
+          .attrTween("d", function(d) { return arcTween.call(this, exitArc(d)); })
+          .remove();
+
+      slice.enter().insert("path")
+          .style("fill-opacity", function(d) { return d.depth === 2 - (root === p) ? 1 : 0; })
+          .style("fill", function(d) { return d.fill; })
+          .on("click", zoomIn)
+          .each(function(d) {this._current = enterArc(d); });
+
+      slice
+        .on("mousemove", function(d){
+            div.style("left", d3.event.pageX+10+"px");
+            div.style("top", d3.event.pageY-25+"px");
+            div.style("display", "inline-block");
+            if (d.name){
+              div.html((d.name));
+            }
+            if(d.Item){
+              if (currentNode.name == "menu") {
+                 div.html((d.Item));
+              }
+              else{
+                var checkedVal = d3.select('input[name="dataset"]:checked').node().value;
+                div.html(("<b>" + d.Item +"</b>"+ "<br>" + 
+                "Calories:" + d.Calories + "<br>" +
+                "Fat:" + d.TotalFat + "<br>" +
+                "Cholesterol:" + d.Cholesterol + "<br>" +
+                "Sodium:" + d.Sodium +"<br>" +
+                "Dietary Fiber:" + d.DietaryFiber + "<br>"
+                ));
+              }
+
+            }
+        });
+      slice
+        .on("mouseout", function(d){
+            div.style("display", "none");
+        });
+
+      slice.transition()
+          .style("fill-opacity", 1)
+          .attrTween("d", function(d) {return arcTween.call(this, updateArc2(d)); });
+    });
+
+    texts = texts.data(partition.nodes(root).slice(1), function(d) { return d.key; })
+   
+    texts.exit()
+           .remove()    
+    texts.enter()
+            .append("text")
+        
+    texts.style("opacity", 0)
+      .attr("transform", function(d) { return "rotate(" + computeTextRotation(d) + ")"; })
+      .attr("x", function(d) { return radius / 1.7 * d.depth; })  
+      .attr("dx", "6") // margin
+      .attr("dy", ".35em") // vertical-align
+      .filter(filter_min_arc_size_text)     
+      .text(function(d,i) {return d.name})
+      .style("fill", function(d) { return d.fill; })
+      .style("font-size", "20px")
+      .transition().delay(750).style("opacity", 1)
+
+  }
+});
+
+
+
+function key(d) {
+  var k = [], p = d;
+  while (p.depth) {
+    if(p.name == null){k.push(p.Item)}
+      else{
+    k.push(p.name)}; 
+    p = p.parent};
+  return k.reverse().join(".");
+}
+
+function fill(d) {
+  var p = d;
+  while (p.depth > 1) p = p.parent;
+  var c = d3.lab(hue(p.name));
+  c.l = luminance(d.sum);
+  return c;
+}
+
+function arcTween(b) {
+  var i = d3.interpolate(this._current, b);
+  this._current = i(0);
+  return function(t) {
+    return arc(i(t));
+  };
+}
+
+function updateArc(d) {
+  return {value:d.value, depth: d.depth, x: d.x, dx: d.dx};
+}
+
+//update Arc within the same Category
+function updateArc2(d) {
+  return {value:d.value, depth: d.depth, x: d.x, dx: d.dx, children:d.children};
+}
+
+
+d3.select(self.frameElement).style("height", margin.top + margin.bottom + "px");
+
+
+</script>
